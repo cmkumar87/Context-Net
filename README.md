@@ -1,2 +1,2 @@
 # Transact-Net
-This is a work-in-progress repository for network moderator on critical discourse in discussion forums. Currently the analysis is limited to student discussions in Massive Open Online Courses.
+This is a work-in-progress repository for a deep learning based moderator agent for critical discourse in discussion forums. Currently the models are limited to student discussion data from Massive Open Online Courses.
