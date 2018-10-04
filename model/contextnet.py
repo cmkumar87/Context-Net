@@ -35,8 +35,6 @@ parser.add_argument('-v','--val',help="validation split: a number between 0 to 1
 parser.add_argument('-c','--course',help="course id", required=True, type=str)
 parser.add_argument('-i','--ver',help="verbose mode", required=False, type=bool)
 
-#parser.add_argument('-d', default=300, required=False, type=int)
-#parser.add_argument('-v', default=0.2, required=False, type=int, help="validation split: a number between 0 to 1")
 args = vars(parser.parse_args())
 course = args['course']
 EMBEDDING_DIM = args['dim']
@@ -47,6 +45,9 @@ print(input_path)
 #vocab, vec = torchwordemb.load_glove_text("/diskA/animesh/glove/glove.6B.50d.txt")
 
 #set seed for reproducibility of results
+from numpy.random import seed
+seed(1491)
+
 torch.manual_seed(1491)
 
 def clean_str(string):
@@ -141,15 +142,15 @@ embed.weight = nn.Parameter(vec)
 #switch to freeze word embedding training
 embed.weight.requires_grad = False
 
-conv_bloc = nn.Sequential(nn.Conv1d(EMBEDDING_DIM, 128, kernel_size=5, padding=1)
+conv_bloc = nn.Sequential(nn.Conv1d(in_channels=EMBEDDING_DIM, out_channels=128, kernel_size=5, padding=2)
                     ,nn.ReLU()
                     #,nn.MaxPool1d(kernel_size=25, padding=1)
                     #,nn.BatchNorm1d(128)
                     #,nn.Conv1d(128, 32, kernel_size=5, padding=1)
-                    ,nn.MaxPool1d(kernel_size=5, padding=1)
+                    ,nn.MaxPool1d(kernel_size=5, padding=2)
                    )
 
-lstm = nn.LSTM(2, 64)
+lstm = nn.LSTM(input_size=128, hidden_size=64)
 fc1 = nn.Sequential(nn.Linear(64, 64)
                     ,nn.ReLU()
                    )
@@ -159,6 +160,10 @@ fc2 = nn.Sequential(nn.Linear(64, 2)
                     ,nn.Softmax(dim=2)
                    )
 #loss = F.log_softmax()
+
+
+#print(conv_bloc)
+
 
 #test input
 inp = torch.tensor([[vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"],
@@ -184,7 +189,13 @@ op = conv_bloc(inp)
 if args['ver']:
     print(op.size())
 
+op = op.permute(2,0,1)
+
+if args['ver']:
+    print(op.size())
+
 #pass through lstm block now
+#h_0 = torch.randn((1,1,64))
 h_n, c_n = lstm(op)
 op = fc1(h_n)
 op = fc2(op)
