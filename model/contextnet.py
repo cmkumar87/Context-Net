@@ -23,7 +23,6 @@ from sklearn import metrics
 import spacy
 import argparse
 
-EMBEDDING_DIM = 50 
 MAX_SEQUENCE_LENGTH = 250 #250 words per post
 MAX_THREAD_LENGTH = 15
 MAX_NB_WORDS = 20000
@@ -34,11 +33,13 @@ parser = argparse.ArgumentParser(description='BiLSTM model for predicting instru
 parser.add_argument('-d','--dim',help="dimension of the embedding. 50 or 300", default=50, required=False, type=int)
 parser.add_argument('-v','--val',help="validation split: a number between 0 to 1", default=0.2, required=False, type=int)
 parser.add_argument('-c','--course',help="course id", required=True, type=str)
+parser.add_argument('-i','--ver',help="verbose mode", required=False, type=bool)
 
 #parser.add_argument('-d', default=300, required=False, type=int)
 #parser.add_argument('-v', default=0.2, required=False, type=int, help="validation split: a number between 0 to 1")
 args = vars(parser.parse_args())
 course = args['course']
+EMBEDDING_DIM = args['dim']
 
 input_path = '/diskA/muthu/Transact-Net/feats/in' + course + '_w2v'
 print(input_path)
@@ -131,7 +132,8 @@ for word in ['<unk>', '<timeref>', '<math>', '<mathfunc>', '<eop>', '<urlref>']:
 	k_tensor = k_tensor.type(torch.FloatTensor)
 	vec = torch.cat((k_tensor,vec), 0)
 
-print(vec.size())
+if args['ver']:
+    print(vec.size())
 
 embed = nn.Embedding(max_idx, EMBEDDING_DIM)
 embed.weight = nn.Parameter(vec)
@@ -141,9 +143,9 @@ embed.weight.requires_grad = False
 
 conv_bloc = nn.Sequential(nn.Conv1d(EMBEDDING_DIM, 128, kernel_size=5, padding=1)
                     ,nn.ReLU()
-                    ,nn.MaxPool1d(kernel_size=25, padding=1)
-                    ,nn.BatchNorm1d(128)
-                    ,nn.Conv1d(128, 32, kernel_size=5, padding=1)
+                    #,nn.MaxPool1d(kernel_size=25, padding=1)
+                    #,nn.BatchNorm1d(128)
+                    #,nn.Conv1d(128, 32, kernel_size=5, padding=1)
                     ,nn.MaxPool1d(kernel_size=5, padding=1)
                    )
 
@@ -158,30 +160,51 @@ fc2 = nn.Sequential(nn.Linear(64, 2)
                    )
 #loss = F.log_softmax()
 
-inp = torch.randn(1,500)
-print(inp.size())
+#test input
+inp = torch.tensor([[vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"],
+                     vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"],
+                     vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"],
+                     vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"]]], dtype=torch.long)
+
+if args['ver']:
+     print(inp.size())
 
 inp = embed(inp)
-print(inp.size())
+
+if args['ver']:
+    print(inp.size())
+
+inp = inp.transpose(1,2)
+
+if args['ver']:
+    print(inp.size())
+
 op = conv_bloc(inp)
+
+if args['ver']:
+    print(op.size())
+
+#pass through lstm block now
 h_n, c_n = lstm(op)
 op = fc1(h_n)
 op = fc2(op)
 
-print('hn size'+str(h_n.size()))
-print('op size'+str(op.size()))
-print(op)
+if args['ver']:
+    print('hn size'+str(h_n.size()))
+    print('op size'+str(op.size()))
+    print(op)
 
 loss_fn = nn.BCELoss()
 optimizer = optim.Adam(net.parameters(), lr=0.0001)
-target = torch.randn(op.size())
+target = torch.rand_like(op)
 
 for epoch in range(num_epochs):
     loss = loss_fn(op, target)
     loss.backward()
     optimizer.step()
 
-print(op)
+if args['ver']:
+    print(op)
 
 
 
