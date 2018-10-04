@@ -147,15 +147,16 @@ conv_bloc = nn.Sequential(nn.Conv1d(in_channels=EMBEDDING_DIM, out_channels=128,
                     #,nn.MaxPool1d(kernel_size=25, padding=1)
                     #,nn.BatchNorm1d(128)
                     #,nn.Conv1d(128, 32, kernel_size=5, padding=1)
+                    #,nn.ReLU()
                     ,nn.MaxPool1d(kernel_size=5, padding=2)
                    )
 
 lstm = nn.LSTM(input_size=128, hidden_size=64)
 fc1 = nn.Sequential(nn.Linear(64, 64)
                     ,nn.ReLU()
+                    ,nn.Dropout(p=0.4)
                    )
 
-dropout = nn.Dropout(p=0.4)
 fc2 = nn.Sequential(nn.Linear(64, 2)
                     ,nn.Softmax(dim=2)
                    )
@@ -171,52 +172,53 @@ inp = torch.tensor([[vocab["hello"], vocab["world"], vocab["english"],vocab["hel
                      vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"],
                      vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"]]], dtype=torch.long)
 
-if args['ver']:
-     print(inp.size())
-
-inp = embed(inp)
-
-if args['ver']:
-    print(inp.size())
-
-inp = inp.transpose(1,2)
-
-if args['ver']:
-    print(inp.size())
-
-op = conv_bloc(inp)
-
-if args['ver']:
-    print(op.size())
-
-op = op.permute(2,0,1)
-
-if args['ver']:
-    print(op.size())
-
-#pass through lstm block now
-#h_0 = torch.randn((1,1,64))
-h_n, c_n = lstm(op)
-op = fc1(h_n)
-op = fc2(op)
-
-if args['ver']:
-    print('hn size'+str(h_n.size()))
-    print('op size'+str(op.size()))
-    print(op)
 
 loss_fn = nn.BCELoss()
-optimizer = optim.Adam(net.parameters(), lr=0.0001)
-target = torch.rand_like(op)
+optimizer = optim.Adam(list(conv_bloc.parameters()) + list(lstm.parameters()) + list(fc1.parameters()) + list(fc2.parameters()), lr=0.0001)
 
-for epoch in range(num_epochs):
+
+for epoch in range(1):
+    if args['ver']:
+         print(inp.size())
+
+    inp = embed(inp)
+
+    if args['ver']:
+        print(inp.size())
+
+    inp = inp.transpose(1,2)
+
+    if args['ver']:
+        print(inp.size())
+
+    op = conv_bloc(inp)
+
+    if args['ver']:
+        print(op.size())
+
+    op = op.permute(2,0,1)
+
+    if args['ver']:
+        print(op.size())
+
+    h_n, c_n = lstm(op)
+    op = fc1(h_n)
+    op = fc2(op)
+
+    if args['ver']:
+        print('Final op size:' + str(op.size()))
+        print('Final ouput at epoch #'+ str(epoch) + str(op))
+
+    target = torch.rand_like(op)
     loss = loss_fn(op, target)
+    print(epoch, loss.item())
+   
+    # Zero the gradients before running the backward pass.
+    optimizer.zero_grad()
+
     loss.backward()
     optimizer.step()
 
-if args['ver']:
-    print(op)
-
-
-
-
+    if args['ver']:
+        print('Final op size:' + str(op.size()))
+        print('Final ouput at epoch #'+ str(epoch) + str(op))
