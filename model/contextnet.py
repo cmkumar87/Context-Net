@@ -1,15 +1,15 @@
 import torchwordemb
 import torch
 import torchvision
-#import torchtext
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import tqdm
 from torch.autograd import Variable
 from torchvision import transforms, utils
-#from __future__ import print_function, division
+import re
 import os
+#import torchtext
 
 from sklearn.model_selection import train_test_split
 #from torchtext.data import Field
@@ -21,12 +21,15 @@ import numpy as np
 from sklearn import metrics
 #import matplotlib.pyplot as plt
 import spacy
+from spacy.lang.en import English
+
 import argparse
 
 MAX_SEQUENCE_LENGTH = 250 #250 words per post
 MAX_THREAD_LENGTH = 15
 MAX_NB_WORDS = 20000
 VALIDATION_SPLIT = 0.2
+MINI_BATCH_SIZE = 32
 num_epochs = 10
 
 parser = argparse.ArgumentParser(description='BiLSTM model for predicting instructor internvention')
@@ -50,7 +53,7 @@ seed(1491)
 
 torch.manual_seed(1491)
 
-def clean_str(string):
+def tokenize_and_clean(string):
     """
     Tokenization/string cleaning for all datasets except for SST.
     Original taken from https://github.com/yoonkim/CNN_sentence/blob/master/process_data.py
@@ -93,21 +96,19 @@ def clean_str(string):
     string = re.sub(r"\s{2,}", " ", string)
     
     string =  string.strip().lower()
-    return string
-    #return [tok.text for tok in spacy_en.tokenizer(string)]
+    #return string
+    nlp = spacy.load('en')
+    tokenizer = English().Defaults.create_tokenizer(nlp)
+    return [tok.text for tok in tokenizer(string)]
 
 df = pd.read_csv(input_path, sep='\t', header=None)
-train,test = train_test_split(df, test_size=0.2, random_state=42, shuffle=True)
+train,test = train_test_split(df, test_size=0.2, random_state=1491, shuffle=True)
 
 #X_train = (train.to_frame().T)
 X_train = train[2]
 y_train = train[1]
 X_test = test[2]
 y_test =  test[1]
-
-#for i,x in enumerate(X_train, 1):
-#    print ('text '+str(i)+' '+x)
-#    exit()
 
 ## Load pretrained word vector
 
@@ -148,7 +149,7 @@ conv_bloc = nn.Sequential(nn.Conv1d(in_channels=EMBEDDING_DIM, out_channels=128,
                     #,nn.BatchNorm1d(128)
                     #,nn.Conv1d(128, 32, kernel_size=5, padding=1)
                     #,nn.ReLU()
-                    ,nn.MaxPool1d(kernel_size=5, padding=2)
+                    ,nn.MaxPool1d(kernel_size=5, padding=2, stride=5)
                    )
 
 lstm = nn.LSTM(input_size=128, hidden_size=64)
@@ -158,13 +159,12 @@ fc1 = nn.Sequential(nn.Linear(64, 64)
                    )
 
 fc2 = nn.Sequential(nn.Linear(64, 2)
-                    ,nn.Softmax(dim=2)
+                    ,nn.Softmax()
                    )
-#loss = F.log_softmax()
-
-
-#print(conv_bloc)
-
+if args['ver']:
+    print(conv_bloc)
+    print(fc1)
+    print(fc2)
 
 #test input
 inp = torch.tensor([[vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"],
@@ -172,53 +172,81 @@ inp = torch.tensor([[vocab["hello"], vocab["world"], vocab["english"],vocab["hel
                      vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"],
                      vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"]]], dtype=torch.long)
 
-
-loss_fn = nn.BCELoss()
+loss_fn = nn.CrossEntropyLoss()
 optimizer = optim.Adam(list(conv_bloc.parameters()) + list(lstm.parameters()) + list(fc1.parameters()) + list(fc2.parameters()), lr=0.0001)
 
-
 for epoch in range(1):
-    if args['ver']:
-         print(inp.size())
+    total_loss = torch.Tensor([0])
+    for idx in list(X_train.index.values):
+        x_tkns = tokenize_and_clean(X_train[idx])
 
-    inp = embed(inp)
+        word_idxs = torch.tensor([vocab[w] if w in vocab else vocab['<unk>'] for w in x_tkns], dtype=torch.long)
+        word_idxs = word_idxs.reshape(1,-1)
+        inp = Variable(word_idxs)
+        
+        if args['ver']:
+            print(inp)
 
-    if args['ver']:
-        print(inp.size())
+        target = Variable(torch.LongTensor([y_train[idx]]), requires_grad=False)
 
-    inp = inp.transpose(1,2)
+        if args['ver']:
+             print(inp.size())
 
-    if args['ver']:
-        print(inp.size())
+        inp = embed(inp)
 
-    op = conv_bloc(inp)
+        if args['ver']:
+             print(inp.size())
+             print(inp)
 
-    if args['ver']:
-        print(op.size())
+        inp = inp.transpose(1,2)
 
-    op = op.permute(2,0,1)
+        if args['ver']:
+            print(inp.size())
 
-    if args['ver']:
-        print(op.size())
+        op = conv_bloc(inp)
 
-    h_n, c_n = lstm(op)
-    op = fc1(h_n)
-    op = fc2(op)
+        if args['ver']:
+            print("after conv bloc" + str(op.size()))
 
-    if args['ver']:
-        print('Final op size:' + str(op.size()))
-        print('Final ouput at epoch #'+ str(epoch) + str(op))
+        op = op.permute(2,0,1)
 
-    target = torch.rand_like(op)
-    loss = loss_fn(op, target)
-    print(epoch, loss.item())
-   
-    # Zero the gradients before running the backward pass.
-    optimizer.zero_grad()
+        if args['ver']:
+            print(op.size())
 
-    loss.backward()
-    optimizer.step()
+        h_n, _ = lstm(op)
 
-    if args['ver']:
-        print('Final op size:' + str(op.size()))
-        print('Final ouput at epoch #'+ str(epoch) + str(op))
+        if args['ver']:
+            print("after lstm" + str(op.size()))
+        
+        h_n = h_n.permute(1,0,2)
+
+        if args['ver']:
+            print(op.size())
+
+        op = fc1(h_n[:,-1,:])
+
+        if args['ver']:
+            print(op.size())
+
+        op = fc2(op)
+
+        if args['ver']:
+            print('Final op size:' + str(op.size()))
+            print('Final ouput at epoch #'+ str(epoch) + str(op))
+        
+        #test target
+        #target = torch.rand_like(op)
+
+        loss = loss_fn(op, target)
+        
+        print(idx, loss.item())
+            
+        # Zero the gradients before running the backward pass.
+        optimizer.zero_grad()
+
+        loss.backward()
+        optimizer.step()
+
+        if args['ver']:
+            print('Final op size:' + str(op.size()))
+            print('Final ouput at epoch #'+ str(epoch) + str(op))
