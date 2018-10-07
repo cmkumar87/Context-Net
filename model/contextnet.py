@@ -47,11 +47,15 @@ print(input_path)
 
 #vocab, vec = torchwordemb.load_glove_text("/diskA/animesh/glove/glove.6B.50d.txt")
 
+if torch.cuda.is_available():
+    torch.device('cuda')
+
 #set seed for reproducibility of results
 from numpy.random import seed
 seed(1491)
 
 torch.manual_seed(1491)
+torch.cuda.manual_seed(1491)
 
 def tokenize_and_clean(string):
     """
@@ -122,6 +126,7 @@ else:
 	print("Embedding dimension not available. Defaulting to 50 dimensions")
 	vocab, vec = torchwordemb.load_glove_text("/diskA/animesh/glove/glove.6B.50d.txt")
 
+vec = vec.cuda()
 max_idx = len(vocab)
 
 for word in ['<unk>', '<timeref>', '<math>', '<mathfunc>', '<eop>', '<urlref>']:
@@ -130,15 +135,15 @@ for word in ['<unk>', '<timeref>', '<math>', '<mathfunc>', '<eop>', '<urlref>']:
 	k = 7*k/np.linalg.norm(k)
 	vocab[word]= max_idx
 	
-	k_tensor = torch.from_numpy(k)
-	k_tensor = k_tensor.type(torch.FloatTensor)
+	k_tensor = torch.from_numpy(k).cuda()
+	k_tensor = k_tensor.type(torch.cuda.FloatTensor)
 	vec = torch.cat((k_tensor,vec), 0)
 
 if args['ver']:
     print(vec.size())
 
 embed = nn.Embedding(max_idx, EMBEDDING_DIM)
-embed.weight = nn.Parameter(vec)
+embed.weight = nn.Parameter(vec).cuda('cuda:0')
 
 #switch to freeze word embedding training
 embed.weight.requires_grad = False
@@ -150,17 +155,17 @@ conv_bloc = nn.Sequential(nn.Conv1d(in_channels=EMBEDDING_DIM, out_channels=128,
                     #,nn.Conv1d(128, 32, kernel_size=5, padding=1)
                     #,nn.ReLU()
                     ,nn.MaxPool1d(kernel_size=5, padding=2, stride=5)
-                   )
+                   ).cuda('cuda:0')
 
-lstm = nn.LSTM(input_size=128, hidden_size=64)
+lstm = nn.LSTM(input_size=128, hidden_size=64).cuda('cuda:0')
 fc1 = nn.Sequential(nn.Linear(64, 64)
                     ,nn.ReLU()
                     ,nn.Dropout(p=0.4)
-                   )
+                   ).cuda('cuda:0')
 
 fc2 = nn.Sequential(nn.Linear(64, 2)
                     ,nn.Softmax()
-                   )
+                   ).cuda('cuda:0')
 if args['ver']:
     print(conv_bloc)
     print(fc1)
@@ -170,45 +175,47 @@ if args['ver']:
 inp = torch.tensor([[vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"],
                      vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"],
                      vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"],
-                     vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"]]], dtype=torch.long)
+                     vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"]]], dtype=torch.long).cuda()
 
 loss_fn = nn.CrossEntropyLoss()
 optimizer = optim.Adam(list(conv_bloc.parameters()) + list(lstm.parameters()) + list(fc1.parameters()) + list(fc2.parameters()), lr=0.0001)
 
+
+print('Training instances for course', args['course'])
 for epoch in range(1):
     total_loss = torch.Tensor([0])
     for idx in list(X_train.index.values):
         x_tkns = tokenize_and_clean(X_train[idx])
 
-        word_idxs = torch.tensor([vocab[w] if w in vocab else vocab['<unk>'] for w in x_tkns], dtype=torch.long)
+        word_idxs = torch.tensor([vocab[w] if w in vocab else vocab['<unk>'] for w in x_tkns], dtype=torch.long).cuda()
         word_idxs = word_idxs.reshape(1,-1)
-        inp = Variable(word_idxs)
+        inp = (Variable(word_idxs)).cuda()
         
         if args['ver']:
             print(inp)
 
-        target = Variable(torch.LongTensor([y_train[idx]]), requires_grad=False)
+        target = Variable(torch.LongTensor([y_train[idx]]), requires_grad=False).cuda()
 
         if args['ver']:
              print(inp.size())
 
-        inp = embed(inp)
+        inp = embed(inp).to('cuda:0')
 
         if args['ver']:
              print(inp.size())
              print(inp)
 
-        inp = inp.transpose(1,2)
+        inp = inp.transpose(1,2).to('cuda:0')
 
         if args['ver']:
             print(inp.size())
 
-        op = conv_bloc(inp)
+        op = conv_bloc(inp).to('cuda:0')
 
         if args['ver']:
             print("after conv bloc" + str(op.size()))
 
-        op = op.permute(2,0,1)
+        op = op.permute(2,0,1).to('cuda:0')
 
         if args['ver']:
             print(op.size())
@@ -218,17 +225,17 @@ for epoch in range(1):
         if args['ver']:
             print("after lstm" + str(op.size()))
         
-        h_n = h_n.permute(1,0,2)
+        h_n = h_n.permute(1,0,2).to('cuda:0')
 
         if args['ver']:
             print(op.size())
 
-        op = fc1(h_n[:,-1,:])
+        op = fc1(h_n[:,-1,:]).to('cuda:0')
 
         if args['ver']:
             print(op.size())
 
-        op = fc2(op)
+        op = fc2(op).to('cuda:0')
 
         if args['ver']:
             print('Final op size:' + str(op.size()))
@@ -250,3 +257,53 @@ for epoch in range(1):
         if args['ver']:
             print('Final op size:' + str(op.size()))
             print('Final ouput at epoch #'+ str(epoch) + str(op))
+
+#Test Time
+print('Training instances for course', args['course'])
+for idx in list(X_test.index.values):
+    x_tkns = tokenize_and_clean(X_test[idx])
+
+    word_idxs = torch.tensor([vocab[w] if w in vocab else vocab['<unk>'] for w in x_tkns], dtype=torch.long)
+    word_idxs = word_idxs.reshape(1,-1)
+    inp = (Variable(word_idxs)).cuda()
+        
+    if args['ver']:
+        print(inp)
+
+    target = (Variable(torch.LongTensor([y_train[idx]]), requires_grad=False)).cuda()
+
+    if args['ver']:
+         print(inp.size())
+
+    inp = embed(inp).to('cuda:0')
+
+    if args['ver']:
+         print(inp.size())
+         print(inp)
+
+    inp = inp.transpose(1,2).to('cuda:0')
+
+    op = conv_bloc(inp).to('cuda:0')
+
+    op = op.permute(2,0,1).to('cuda:0')
+
+    h_n, _ = lstm(op)
+
+    h_n = h_n.permute(1,0,2).to('cuda:0')
+
+    op = fc1(h_n[:,-1,:]).to('cuda:0')
+
+    op = fc2(op).to('cuda:0')
+    prediction = op.max(dim=1)
+    print ('idx, prediction', idx, prediction)
+        
+    #test target
+    #target = torch.rand_like(op)
+
+    loss = loss_fn(op, target)
+    print(idx, loss.item())
+ 
+
+print ('No of training instances', len(X_train.index))
+print ('No of test instances', len(X_test.count))
+           
