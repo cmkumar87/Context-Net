@@ -12,6 +12,7 @@ import os
 #import torchtext
 
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import precision_recall_fscore_support
 #from torchtext.data import Field
 #from torchtext.data import TabularDataset, Iterator, BucketIterator
 
@@ -100,11 +101,11 @@ def tokenize_and_clean(string):
     string = re.sub(r"\s{2,}", " ", string)
     
     string =  string.strip().lower()
-    #return string
     nlp = spacy.load('en')
     tokenizer = English().Defaults.create_tokenizer(nlp)
     return [tok.text for tok in tokenizer(string)]
 
+#read inout files
 df = pd.read_csv(input_path, sep='\t', header=None)
 train,test = train_test_split(df, test_size=0.2, random_state=1491, shuffle=True)
 
@@ -115,7 +116,6 @@ X_test = test[2]
 y_test =  test[1]
 
 ## Load pretrained word vector
-
 if args['dim'] == 50:
 	print('loading 50d glove embedding')
 	vocab, vec = torchwordemb.load_glove_text("/diskA/animesh/glove/glove.6B.50d.txt")
@@ -246,7 +246,7 @@ for epoch in range(1):
 
         loss = loss_fn(op, target)
         
-        print(idx, loss.item())
+        #print(idx, loss.item())
             
         # Zero the gradients before running the backward pass.
         optimizer.zero_grad()
@@ -258,6 +258,9 @@ for epoch in range(1):
             print('Final op size:' + str(op.size()))
             print('Final ouput at epoch #'+ str(epoch) + str(op))
 
+
+y_preds = []
+y_true = []
 #Test Time
 print('Training instances for course', args['course'])
 for idx in list(X_test.index.values):
@@ -270,7 +273,7 @@ for idx in list(X_test.index.values):
     if args['ver']:
         print(inp)
 
-    target = (Variable(torch.LongTensor([y_train[idx]]), requires_grad=False)).cuda()
+    target = (Variable(torch.LongTensor([y_test[idx]]), requires_grad=False)).cuda()
 
     if args['ver']:
          print(inp.size())
@@ -294,16 +297,25 @@ for idx in list(X_test.index.values):
     op = fc1(h_n[:,-1,:]).to('cuda:0')
 
     op = fc2(op).to('cuda:0')
-    prediction = op.max(dim=1)
-    print ('idx, prediction', idx, prediction)
+    _, prediction = op.max(dim=1)
+    prediction  = prediction.item()
+    if args['ver']:
+        print ('idx, op, prediction', idx, op, prediction)
+    y_preds.append(prediction)
+    y_true.append(y_test[idx])
         
     #test target
     #target = torch.rand_like(op)
 
     loss = loss_fn(op, target)
-    print(idx, loss.item())
+    #print(idx, loss.item())
  
+#metric calculation
+prec, recall, fscore, _ = precision_recall_fscore_support(y_true, y_preds, average=None,labels=['0', '1'])
 
-print ('No of training instances', len(X_train.index))
-print ('No of test instances', len(X_test.count))
-           
+
+print('No of training instances', len(X_train.index))
+print('No of test instances', len(X_test.index))
+print('truth', y_true)
+print('predictions', y_preds)
+print('prec, recall, fscore', prec[1], recall[1], fscore[1])
