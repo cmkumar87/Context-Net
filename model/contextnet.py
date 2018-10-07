@@ -175,11 +175,22 @@ if args['ver']:
 inp = torch.tensor([[vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"],
                      vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"],
                      vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"],
-                     vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"]]], dtype=torch.long).cuda()
+                     vocab["hello"], vocab["world"], vocab["english"],vocab["hello"], vocab["world"], vocab["english"]]],
+                     dtype=torch.long).cuda()
 
-loss_fn = nn.CrossEntropyLoss()
+#calculate class weights for use in classification to counter class imbalance
+class_ratio = np.bincount(y_train.values)
+class_weight_dict = { 0: 1.0,
+                      1: class_ratio[0]*1.0 /class_ratio[1]
+                    }
+class_weights_tensor = torch.FloatTensor([class_weight_dict[0],class_weight_dict[1]]).cuda()
+
+if args['ver']:
+    print(class_weight_dict)
+    print(class_weights_tensor)
+
+loss_fn = nn.CrossEntropyLoss(weight=class_weights_tensor)
 optimizer = optim.Adam(list(conv_bloc.parameters()) + list(lstm.parameters()) + list(fc1.parameters()) + list(fc2.parameters()), lr=0.0001)
-
 
 print('Training instances for course', args['course'])
 for epoch in range(1):
