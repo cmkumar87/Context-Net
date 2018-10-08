@@ -106,7 +106,7 @@ def tokenize_and_clean(string):
     return [tok.text for tok in tokenizer(string)]
 
 #read inout files
-df = pd.read_csv(input_path, sep='\t', header=None)
+df = pd.read_csv(input_path, sep='\t', header=None, encoding="ISO-8859-1")
 train,test = train_test_split(df, test_size=0.2, random_state=1491, shuffle=True)
 
 #X_train = (train.to_frame().T)
@@ -150,20 +150,20 @@ embed.weight.requires_grad = False
 
 conv_bloc = nn.Sequential(nn.Conv1d(in_channels=EMBEDDING_DIM, out_channels=128, kernel_size=5, padding=2)
                     ,nn.ReLU()
-                    #,nn.MaxPool1d(kernel_size=25, padding=1)
+                    ,nn.MaxPool1d(kernel_size=5, padding=2)
                     #,nn.BatchNorm1d(128)
-                    #,nn.Conv1d(128, 32, kernel_size=5, padding=1)
-                    #,nn.ReLU()
+                    ,nn.Conv1d(in_channels=128, out_channels=32, kernel_size=5, padding=2)
+                    ,nn.ReLU()
                     ,nn.MaxPool1d(kernel_size=5, padding=2, stride=5)
                    ).cuda('cuda:0')
 
-lstm = nn.LSTM(input_size=128, hidden_size=64).cuda('cuda:0')
-fc1 = nn.Sequential(nn.Linear(64, 64)
+lstm = nn.LSTM(input_size=32, hidden_size=32, dropout=0.2).cuda('cuda:0')
+fc1 = nn.Sequential(nn.Linear(32, 32)
                     ,nn.ReLU()
                     ,nn.Dropout(p=0.4)
                    ).cuda('cuda:0')
 
-fc2 = nn.Sequential(nn.Linear(64, 2)
+fc2 = nn.Sequential(nn.Linear(32, 2)
                     ,nn.Softmax()
                    ).cuda('cuda:0')
 if args['ver']:
@@ -193,6 +193,7 @@ loss_fn = nn.CrossEntropyLoss(weight=class_weights_tensor)
 optimizer = optim.Adam(list(conv_bloc.parameters()) + list(lstm.parameters()) + list(fc1.parameters()) + list(fc2.parameters()), lr=0.0001)
 
 print('Training instances for course', args['course'])
+print('Training loss....')
 for epoch in range(1):
     total_loss = torch.Tensor([0])
     for idx in list(X_train.index.values):
@@ -257,7 +258,7 @@ for epoch in range(1):
 
         loss = loss_fn(op, target)
         
-        #print(idx, loss.item())
+        print(idx, loss.item())
             
         # Zero the gradients before running the backward pass.
         optimizer.zero_grad()
@@ -273,7 +274,7 @@ for epoch in range(1):
 y_preds = []
 y_true = []
 #Test Time
-print('Training instances for course', args['course'])
+print('Test instances for course', args['course'])
 for idx in list(X_test.index.values):
     x_tkns = tokenize_and_clean(X_test[idx])
 
@@ -319,7 +320,7 @@ for idx in list(X_test.index.values):
     #target = torch.rand_like(op)
 
     loss = loss_fn(op, target)
-    #print(idx, loss.item())
+    print(idx, loss.item())
  
 #metric calculation
 prec, recall, fscore, _ = precision_recall_fscore_support(y_true, y_preds, average=None,labels=['0', '1'])
