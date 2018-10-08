@@ -76,17 +76,18 @@ texts = []  # list of text samples
 labels_index = {'0':0 , '1':1}  # dictionary mapping label name to numeric id
 labels = []  # list of label ids
 ids=[]
-f=open(sys.argv[1])
 
 #Read line ids -->ids
-
+import io
+f = io.open(sys.argv[1],'r',encoding='ISO-8859-1')
 for lines in f:
 	comps=lines.split('\t')
 	texts.append(''.join(comps[2:]).strip().lower())
 	labels.append(int(comps[1].strip()))
 	ids.append(int(comps[0].strip()))
+f.close()
 print('%s' %labels)
-print(ids)
+#print(ids)
 print('Found %s texts.' % len(texts))
 
 class_ratio=np.bincount(labels)
@@ -203,7 +204,8 @@ model.compile(loss='categorical_crossentropy',
               optimizer='rmsprop',
               metrics=['acc', binary_crossentropy])
 
-print(model.summary)
+print(model.summary())
+
 
 # happy learning!
 model.fit(x_train, y_train, validation_data=(x_val, y_val),
