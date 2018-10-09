@@ -119,6 +119,12 @@ y_test =  test[1]
 if args['dim'] == 50:
 	print('loading 50d glove embedding')
 	vocab, vec = torchwordemb.load_glove_text("/diskA/animesh/glove/glove.6B.50d.txt")
+elif args['dim'] == 100:
+	print('loading 50d glove embedding')
+	vocab, vec = torchwordemb.load_glove_text("/diskA/animesh/glove/glove.6B.100d.txt")
+elif args['dim'] == 200:
+	print('loading 50d glove embedding')
+	vocab, vec = torchwordemb.load_glove_text("/diskA/animesh/glove/glove.6B.200d.txt")
 elif args['dim'] == 300:
 	print('loading 300d glove embedding')
 	vocab, vec = torchwordemb.load_glove_text("/diskA/animesh/glove/glove.6B.300d.txt")
@@ -129,6 +135,8 @@ else:
 vec = vec.cuda()
 max_idx = len(vocab)
 
+#add indices and random embeddings of important OOV words. We will learn these 
+#embedding during traiing
 for word in ['<unk>', '<timeref>', '<math>', '<mathfunc>', '<eop>', '<urlref>']:
 	max_idx += 1
 	k = np.random.rand(1, EMBEDDING_DIM)
@@ -146,8 +154,9 @@ embed = nn.Embedding(max_idx, EMBEDDING_DIM)
 embed.weight = nn.Parameter(vec).cuda('cuda:0')
 
 #switch to freeze word embedding training
-embed.weight.requires_grad = False
+embed.weight.requires_grad = True
 
+#TODO add device agnostic code switch so that it can also run on CPUs
 conv_bloc = nn.Sequential(nn.Conv1d(in_channels=EMBEDDING_DIM, out_channels=128, kernel_size=5, padding=2)
                     ,nn.ReLU()
                     ,nn.MaxPool1d(kernel_size=5, padding=2)
