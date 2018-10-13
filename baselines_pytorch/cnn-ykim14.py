@@ -30,8 +30,8 @@ MAX_SEQUENCE_LENGTH = 250 #250 words per post
 MAX_THREAD_LENGTH = 15
 MAX_NB_WORDS = 20000
 VALIDATION_SPLIT = 0.2
-MINI_BATCH_SIZE = 32 
-num_epochs = 2 
+MINI_BATCH_SIZE = 16 
+num_epochs = 1 
 LEARNING_RATE = 1e-3
 
 parser = argparse.ArgumentParser(description='BiLSTM model for predicting instructor internvention')
@@ -127,10 +127,10 @@ if args['dim'] == 50:
 	print('loading 50d glove embedding')
 	vocab, vec = torchwordemb.load_glove_text("/diskA/animesh/glove/glove.6B.50d.txt")
 elif args['dim'] == 100:
-	print('loading 50d glove embedding')
+	print('loading 100d glove embedding')
 	vocab, vec = torchwordemb.load_glove_text("/diskA/animesh/glove/glove.6B.100d.txt")
 elif args['dim'] == 200:
-	print('loading 50d glove embedding')
+	print('loading 200d glove embedding')
 	vocab, vec = torchwordemb.load_glove_text("/diskA/animesh/glove/glove.6B.200d.txt")
 elif args['dim'] == 300:
 	print('loading 300d glove embedding')
@@ -174,28 +174,38 @@ class Model(nn.Module):
         self.embed = nn.Embedding(V, D)
         self.embed.weight = nn.Parameter(args['vec'])
         self.embed.weight.requires_grad = True
-        self.convs1 = nn.ModuleList([nn.Conv2d(Ci, Co, (K, D)) for K in Ks])
+        #self.convs1 = nn.ModuleList([nn.Conv2d(Ci, Co, (K, D)) for K in Ks])
+        self.convs = nn.ModuleList([nn.Conv1d(D, Co, K) for K in Ks])
         self.dropout = nn.Dropout(args['dropout'])
         self.fc1 = nn.Linear(len(Ks)*Co, C)
+
+    @staticmethod
+    def conv_and_max_pool(x, conv):
+        """Convolution and global max pooling layer"""
+        return F.relu(conv(x).permute(0, 2, 1).max(1)[0])
 
     def forward(self, x):
         x = self.embed(x)  # (N, W, D)
         x = Variable(x)
-        x = x.unsqueeze(1)  # (N, Ci, W, D)
-        x = [F.relu(conv(x)).squeeze(3) for conv in self.convs1]
-        x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]  # [(N, Co), ...]*len(Ks)
-        x = torch.cat(x, 1)
-        x = self.dropout(x)  # (N, len(Ks)*Co)
-        logit = self.fc1(x)  # (N, C)
+        #x = x.unsqueeze(1)  # (N, Ci, W, D)
+        #x = [F.relu(conv(x)).squeeze(3) for conv in self.convs1]
+        #x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]  # [(N, Co), ...]*len(Ks) 
+        #x = torch.cat(x, 1)
+        #rewriting using conv1d
+        x = x.permute(0, 2, 1)  # (N, D, W)
+        x = [self.conv_and_max_pool(x, k) for k in self.convs]
+        #x = self.dropout(x)  # (N, len(Ks)*Co)
+        logit = self.fc1(self.dropout(torch.cat(x, 1)))  # concatenation and dropout
+        #logit = self.fc1(x)  # (N, C)
         return logit
         
 cnn_args = {} 
 cnn_args['embed_num'] = max_idx
 cnn_args['vec'] = vec
-cnn_args['class_num'] = 2
+cnn_args['class_num'] = 3
 cnn_args['cuda'] = torch.cuda.is_available()
 cnn_args['kernel_num'] = 100 
-cnn_args['kernel_sizes'] = [3,4,5]
+cnn_args['kernel_sizes'] = [2]
 cnn_args['embed_dim'] = args['dim']
 cnn_args['dropout'] = 0.4
 
