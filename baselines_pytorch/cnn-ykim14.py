@@ -202,10 +202,10 @@ class Model(nn.Module):
 cnn_args = {} 
 cnn_args['embed_num'] = max_idx
 cnn_args['vec'] = vec
-cnn_args['class_num'] = 3
+cnn_args['class_num'] = 2 
 cnn_args['cuda'] = torch.cuda.is_available()
 cnn_args['kernel_num'] = 100 
-cnn_args['kernel_sizes'] = [2]
+cnn_args['kernel_sizes'] = [3]
 cnn_args['embed_dim'] = args['dim']
 cnn_args['dropout'] = 0.4
 
@@ -253,8 +253,6 @@ def get_sequences(X_batch, y_batch):
                 
     # get the length of each sentence
     X_lengths = [len(text) for text in X_batch_tkns]
-    print (len(X_lengths))
-    print (len(X_batch_tkns))
 
     # create an empty matrix with padding tokens
     pad_token = vocab['<pad>']
