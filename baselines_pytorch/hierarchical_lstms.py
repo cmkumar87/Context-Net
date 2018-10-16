@@ -33,6 +33,7 @@ VALIDATION_SPLIT = 0.2
 MINI_BATCH_SIZE = 1 
 num_epochs = 1 
 LEARNING_RATE = 1e-3
+CONTEXT = 999
 
 parser = argparse.ArgumentParser(description='BiLSTM model for predicting instructor internvention')
 parser.add_argument('-d','--dim',help="dimension of the embedding. 50 or 300", default=50, required=False, type=int)
@@ -40,13 +41,15 @@ parser.add_argument('-e','--epochs',help="number of epochs. > 0", default=2, req
 parser.add_argument('-r','--lr',help="learning rate >0 but <100", default=1e-2, required=False, type=int)
 parser.add_argument('-b','--bz',help="mini batch size. Usually in powers of 2; >=16", default=16, required=False, type=int)
 parser.add_argument('-v','--val',help="validation split: a number between 0 to 1", default=0.2, required=False, type=int)
-parser.add_argument('-c','--course',help="course id", required=True, type=str)
+parser.add_argument('-c','--course',help="specificy course id to match that in the input file name", required=True, type=str)
 parser.add_argument('-i','--ver',help="verbose mode", required=False, type=bool)
 parser.add_argument('-l','--load',help="load model", required=False, type=bool)
+parser.add_argument('-ct','--con',help="thread context to use as model input", required=True, type=int)
 
 args = vars(parser.parse_args())
 course = args['course']
 EMBEDDING_DIM = args['dim']
+CONTEXT = args['con']
 
 input_path = '/diskA/muthu/Transact-Net/feats/in' + course + '_w2v'
 print(input_path)
@@ -249,11 +252,19 @@ def get_sequences(X_batch, y_batch):
     
     #print(X_batch)
     posts = X_batch.iloc[0].strip().split("<EOP>")
-    if posts[1] == '':
+    if posts[-1] == '':
         del posts[-1]
+    
+    #posts = posts[-CONTEXT:]
+    #print(posts)    
 
+    if CONTEXT < len(posts):
+        posts = posts[-CONTEXT:]
+    
     #print(posts)
     #print(len(posts))
+    #print(CONTEXT)
+    
     #post_tkns = [[] for _ in range(0,len(posts))]
     post_tkns = []
     for post in posts:
@@ -283,6 +294,7 @@ def get_sequences(X_batch, y_batch):
 
     return padded_posts, targets_np, max_post_length
 
+
 if args['load']:
     optimizer.load_state_dict(torch.load(filename))
 
@@ -290,6 +302,8 @@ for epoch in range(1,num_epochs+1):
     for batch_num in range(num_batches):
         print('batch num', batch_num)
         word_idxs, targets, max_post_length = get_sequences(X_batches[batch_num], y_batches[batch_num])
+        if word_idxs.size == 0:
+            continue
 
         word_idxs_tensor = torch.LongTensor(word_idxs)#torch.from_numpy(word_idxs).long()
 
