@@ -35,6 +35,8 @@ num_epochs = 1
 LEARNING_RATE = 1e-3
 CONTEXT = 999
 
+#CORPUS = ['ml-005', 'rprog-003', 'calc1-003', 'compilers-004', 'smac-001', 'maththink-004', 'bioelectricity-002', 'gametheory2-001', 'musicproduction-006', 'medicalneuro-002','comparch-002', 'bioinfomethods1-001', 'casebasedbiostat-002']
+
 parser = argparse.ArgumentParser(description='BiLSTM model for predicting instructor internvention')
 parser.add_argument('-d','--dim',help="dimension of the embedding. 50 or 300", default=50, required=False, type=int)
 parser.add_argument('-e','--epochs',help="number of epochs. > 0", default=2, required=False, type=int)
@@ -193,7 +195,6 @@ class Model(nn.Module):
         x = self.embed(x)  # (N, W, D)
         x = Variable(x)
         x = x.permute(1,0,2)  # (W, N, D)
-        #x = [self.conv_and_max_pool(x, k) for k in self.convs]
         x,_ = self.lstm1(x)
         x = x[-1]
         x = x.unsqueeze(1)
@@ -243,7 +244,7 @@ num_batches = len(X_train.index.values) // MINI_BATCH_SIZE
 X_batches = np.array_split(X_train, num_batches)
 y_batches = np.array_split(y_train, num_batches)
 
-def get_sequences(X_batch, y_batch):
+def get_sequences(X_batch, context):
     '''
     turns words in pieces of text into padded 
     sequences of word indices correspodning to 
@@ -255,15 +256,15 @@ def get_sequences(X_batch, y_batch):
     if posts[-1] == '':
         del posts[-1]
     
-    #posts = posts[-CONTEXT:]
+    #posts = posts[-context:]
     #print(posts)    
 
-    if CONTEXT < len(posts):
-        posts = posts[-CONTEXT:]
+    if context < len(posts):
+        posts = posts[-context:]
     
     #print(posts)
     #print(len(posts))
-    #print(CONTEXT)
+    #print(context)
     
     #post_tkns = [[] for _ in range(0,len(posts))]
     post_tkns = []
@@ -287,12 +288,8 @@ def get_sequences(X_batch, y_batch):
         sequence = np.array([vocab[w] if w in vocab else vocab['<unk>'] for w in post_tkns[i]])
         padded_posts[i, 0:post_length] = sequence[:post_length]
 
-    targets = []
-    for idx in (y_batch.index.values):
-        targets.append(y_batch[idx])
-    targets_np = np.array(targets)
 
-    return padded_posts, targets_np, max_post_length
+    return padded_posts, max_post_length
 
 
 if args['load']:
@@ -301,12 +298,16 @@ if args['load']:
 for epoch in range(1,num_epochs+1):
     for batch_num in range(num_batches):
         print('batch num', batch_num)
-        word_idxs, targets, max_post_length = get_sequences(X_batches[batch_num], y_batches[batch_num])
+        word_idxs, targets, max_post_length = get_sequences(X_batches[batch_num], context=CONTEXT)
         if word_idxs.size == 0:
             continue
 
         word_idxs_tensor = torch.LongTensor(word_idxs)#torch.from_numpy(word_idxs).long()
 
+        targets = []
+        for idx in (y_batches[batch_num].index.values):
+            targets.append(y_batch[idx])
+        targets_np = np.array(targets)
         targets_tensor = torch.LongTensor(targets)
         #targets_tensor = targets_tensor.cuda()
 
@@ -323,16 +324,20 @@ for epoch in range(1,num_epochs+1):
         optimizer.zero_grad()
         logit = lstm(inp)
 
+        print (batch_num, logit)
+
         loss = F.cross_entropy(logit, target, class_weights_tensor, size_average=True)
         
-        print(epoch, batch_num, loss.item())
+        #print(epoch, batch_num, loss.item())
             
         # Zero the gradients before running the backward pass.
 
         loss.backward()
         optimizer.step()
 
-torch.save(optimizer.state_dict(), "./best_model")
+
+torch.save(lstm.state_dict(), "./best_model_weights")
+torch.save(optimizer.state_dict(), "./best_model_gradients")
 
 y_preds = []
 y_true = []
