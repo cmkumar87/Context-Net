@@ -173,16 +173,13 @@ class Model(nn.Module):
         D = args['embed_dim']
         C = args['class_num']
         Ci = 1
-        Co = args['kernel_num']
-        Ks = args['kernel_sizes']
+        hidden = args['hidden']
 
         self.embed = nn.Embedding(V, D)
         self.embed.weight = nn.Parameter(args['vec'])
         self.embed.weight.requires_grad = True
-        #self.convs1 = nn.ModuleList([nn.Conv2d(Ci, Co, (K, D)) for K in Ks])
-        #self.convs = nn.ModuleList([nn.Conv1d(D, Co, K) for K in Ks])
-        self.lstm1 = nn.LSTM(input_size=D, hidden_size=128, dropout=0.2, bidirectional=False)
-        self.lstm2 = nn.LSTM(input_size=128, hidden_size=128, dropout=0.2, bidirectional=False)
+        self.lstm1 = nn.LSTM(input_size=D, hidden_size=hidden, dropout=0.2, bidirectional=False)
+        self.lstm2 = nn.LSTM(input_size=128, hidden_size=hidden, dropout=0.2, bidirectional=False)
         self.dropout = nn.Dropout(args['dropout'])
         self.fc1 = nn.Linear(128, C)
 
@@ -207,8 +204,7 @@ lstm_args['embed_num'] = max_idx
 lstm_args['vec'] = vec
 lstm_args['class_num'] = 2
 lstm_args['cuda'] = torch.cuda.is_available()
-lstm_args['kernel_num'] = 100 
-lstm_args['kernel_sizes'] = [2]
+lstm_args['hidden'] = 128 
 lstm_args['embed_dim'] = args['dim']
 lstm_args['dropout'] = 0.4
 
@@ -250,14 +246,11 @@ def get_sequences(X_batch, context):
     sequences of word indices correspodning to 
     the vocab
     '''
-    
-    #print(X_batch)
     posts = X_batch.iloc[0].strip().split("<EOP>")
     if posts[-1] == '':
         del posts[-1]
-    
-    #posts = posts[-context:]
-    #print(posts)    
+
+    original_thread_length = len(posts) 
 
     if context < len(posts):
         posts = posts[-context:]
@@ -266,12 +259,11 @@ def get_sequences(X_batch, context):
     #print(len(posts))
     #print(context)
     
-    #post_tkns = [[] for _ in range(0,len(posts))]
     post_tkns = []
     for post in posts:
         post_tkns.append(tokenize_and_clean(post))
-    
     #print (post_tkns)
+    
     # get the length of each sentence
     post_lengths = [len(text) for text in post_tkns]
     #print (len(post_tkns))
@@ -289,71 +281,95 @@ def get_sequences(X_batch, context):
         padded_posts[i, 0:post_length] = sequence[:post_length]
 
 
-    return padded_posts, max_post_length
+    return padded_posts, original_thread_length
 
 
 if args['load']:
     optimizer.load_state_dict(torch.load(filename))
 
+#Training
 for epoch in range(1,num_epochs+1):
     for batch_num in range(num_batches):
         print('batch num', batch_num)
-        word_idxs, targets, max_post_length = get_sequences(X_batches[batch_num], context=CONTEXT)
+
+        targets = []
+        y_batch = y_batches[batch_num]
+        for idx in (y_batch.index.values):
+            targets.append(y_batch[idx])
+        targets_np = np.array(targets)
+        targets_tensor = torch.LongTensor(targets)
+        target = Variable(targets_tensor, requires_grad=False).cuda()
+
+        word_idxs, thread_length = get_sequences(X_batches[batch_num], context=CONTEXT)
         if word_idxs.size == 0:
             continue
 
         word_idxs_tensor = torch.LongTensor(word_idxs)#torch.from_numpy(word_idxs).long()
-
-        targets = []
-        for idx in (y_batches[batch_num].index.values):
-            targets.append(y_batch[idx])
-        targets_np = np.array(targets)
-        targets_tensor = torch.LongTensor(targets)
-        #targets_tensor = targets_tensor.cuda()
-
+        
         inp = Variable(word_idxs_tensor, requires_grad=False).cuda()
-        target = Variable(targets_tensor, requires_grad=False).cuda()
         
         if args['ver']:
             print(inp.size())
           
+        word_idxs2, thread_length2 = get_sequences(X_batches[batch_num], context=999)
+        if word_idxs2.size == 0:
+            continue
+
+        word_idxs2_tensor = torch.LongTensor(word_idxs2)#torch.from_numpy(word_idxs).long()
+        
+        inp2 = Variable(word_idxs2_tensor, requires_grad=False).cuda()
+
         if args['ver']:
              print("target size" + str(target.size()))
              print(target)
              print(target.size())
-        optimizer.zero_grad()
-        logit = lstm(inp)
-
-        print (batch_num, logit)
-
-        loss = F.cross_entropy(logit, target, class_weights_tensor, size_average=True)
-        
-        #print(epoch, batch_num, loss.item())
-            
         # Zero the gradients before running the backward pass.
+        optimizer.zero_grad()
+        
+        # Forward pass
+        #logit = lstm(inp)
+        logit1 = lstm(inp)
+        logit2 = lstm(inp2)
+        #logit = logit1 - logit2
+        #print (batch_num, logit)
+
+        #loss_in_context = 1 - (CONTEXT/thread_length)
+        loss = F.cross_entropy(logit1, target, class_weights_tensor, size_average=True) + F.cross_entropy(logit2, target, class_weights_tensor, size_average=True) 
+        #print(loss.item(), loss_in_context, thread_length)
+        #if loss_in_context > 0:
+        #   loss = loss * loss_in_context
+
+        #loss = F.cross_entropy(logit1, target, class_weights_tensor, size_average=False) - F.cross_entropy(logit2, target, class_weights_tensor, size_average=False)
+        #torch.abs_(loss)
+
+        #print(epoch, batch_num, loss)
+ 
+        #loss = loss / len()
+        print(epoch, batch_num, loss.item())
 
         loss.backward()
         optimizer.step()
-
 
 torch.save(lstm.state_dict(), "./best_model_weights")
 torch.save(optimizer.state_dict(), "./best_model_gradients")
 
 y_preds = []
 y_true = []
+
+X_batches = np.array_split(X_test, len(X_test))
+y_batches = np.array_split(y_test, len(y_test))
+
 #Test Time
 print('Test instances for course', args['course'])
-for idx in list(X_test.index.values):
-    x_tkns = tokenize_and_clean(X_test[idx])
+for batch_num in range(0, len(X_test)):
+#for idx in list(X_test.index.values):
+    print(batch_num)
+    word_idxs, thread_length = get_sequences(X_batches[batch_num], context=999)
+    if word_idxs.size == 0:
+        continue
 
-    word_idxs = torch.tensor([vocab[w] if w in vocab else vocab['<unk>'] for w in x_tkns], dtype=torch.long)
-    word_idxs = word_idxs.reshape(1,-1)
-    inp = (Variable(word_idxs)).cuda()
-        
-    #if args['ver']:
-        #print(inp)
-
-    target = (Variable(torch.LongTensor([y_test[idx]]), requires_grad=False)).cuda()
+    word_idxs_tensor = torch.LongTensor(word_idxs)#torch.from_numpy(word_idxs).long()
+    inp = Variable(word_idxs_tensor, requires_grad=False).cuda()
 
     if args['ver']:
          print(inp.size())
@@ -365,11 +381,20 @@ for idx in list(X_test.index.values):
     if args['ver']:
         print('idx, op, prediction', idx, op, prediction)
     y_preds.append(prediction)
-    y_true.append(y_test[idx])
+    y_batch = y_batches[batch_num]
+    y_true.append(y_batch.iloc[0])
         
     #test target
     #target = torch.rand_like(op)
-
+    targets = []
+    for idx in (y_batch.index.values):
+        targets.append(y_batch[idx])
+    #targets_np = np.array(targets)
+    #targets_tensor = torch.LongTensor(targets)
+    #target = Variable(targets_tensor, requires_grad=False).cuda()
+    targets = y_batch.iloc[0]
+    targets_tensor = torch.LongTensor([targets])
+    target = Variable(targets_tensor, requires_grad=False).cuda()
     loss = F.cross_entropy(op, target, class_weights_tensor, size_average=True)    
     print(idx, loss.item())
  
