@@ -20,7 +20,7 @@ import pandas as pd
 import numpy as np
 #from visualize_attention import attentionDisplay
 from sklearn import metrics
-#import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 import spacy
 from spacy.lang.en import English
 
@@ -33,7 +33,6 @@ VALIDATION_SPLIT = 0.2
 MINI_BATCH_SIZE = 1 
 num_epochs = 1 
 LEARNING_RATE = 1e-3
-CONTEXT = 999
 
 #CORPUS = ['ml-005', 'rprog-003', 'calc1-003', 'compilers-004', 'smac-001', 'maththink-004', 'bioelectricity-002', 'gametheory2-001', 'musicproduction-006', 'medicalneuro-002','comparch-002', 'bioinfomethods1-001', 'casebasedbiostat-002']
 
@@ -46,7 +45,7 @@ parser.add_argument('-v','--val',help="validation split: a number between 0 to 1
 parser.add_argument('-c','--course',help="specificy course id to match that in the input file name", required=True, type=str)
 parser.add_argument('-i','--ver',help="verbose mode", required=False, type=bool)
 parser.add_argument('-l','--load',help="load model", required=False, type=bool)
-parser.add_argument('-ct','--con',help="thread context to use as model input", required=True, type=int)
+parser.add_argument('-ct','--con', default=999, help="thread context to use as model input", required=False, type=int)
 
 args = vars(parser.parse_args())
 course = args['course']
@@ -119,14 +118,18 @@ def tokenize_and_clean(string):
 
 #read inout files
 df = pd.read_csv(input_path, sep='\t', header=None, encoding="ISO-8859-1")
+
+#create training testing and validation splits
 train,test = train_test_split(df, test_size=0.2, random_state=1491, shuffle=True)
+#train,validation = train_test_split(train, test_size=0.2, random_state=1491, shuffle=True)
 
 #X_train = (train.to_frame().T)
 X_train = train[2]
 y_train = train[1]
 X_test = test[2]
 y_test =  test[1]
-
+ids_train = train[0]
+ids_test = test[0]
 ## Load pretrained word vector
 if args['dim'] == 50:
 	print('loading 50d glove embedding')
@@ -161,10 +164,6 @@ for word in ['<unk>', '<timeref>', '<math>', '<mathfunc>', '<eop>', '<urlref>', 
 if args['ver']:
     print(vec.size())
 
-'''
-Yoon Kim 2010 CNN sentence classifier
-from https://github.com/Shawn1993/cnn-text-classification-pytorch/blob/master/model.py
-'''
 class Model(nn.Module):
     def __init__(self, args):
         super(Model, self).__init__()
@@ -182,11 +181,6 @@ class Model(nn.Module):
         self.lstm2 = nn.LSTM(input_size=128, hidden_size=hidden, dropout=0.2, bidirectional=False)
         self.dropout = nn.Dropout(args['dropout'])
         self.fc1 = nn.Linear(128, C)
-
-    @staticmethod
-    def conv_and_max_pool(x, conv):
-        """Convolution and global max pooling layer"""
-        return F.relu(conv(x).permute(0, 2, 1).max(1)[0])
 
     def forward(self, x):
         x = self.embed(x)  # (N, W, D)
@@ -240,6 +234,15 @@ num_batches = len(X_train.index.values) // MINI_BATCH_SIZE
 X_batches = np.array_split(X_train, num_batches)
 y_batches = np.array_split(y_train, num_batches)
 
+thread_lengths = []
+for thread in X_train:
+    posts = thread.strip().split("<EOP>")
+    thread_lengths.append(len(posts))
+
+#this is also the maximum batch size
+max_thread_length = max(thread_lengths)
+#print(str(thread_lengths))
+
 def get_sequences(X_batch, context):
     '''
     turns words in pieces of text into padded 
@@ -247,27 +250,21 @@ def get_sequences(X_batch, context):
     the vocab
     '''
     posts = X_batch.iloc[0].strip().split("<EOP>")
+    #split leave the last split with an empty string
+    #this is removed below
     if posts[-1] == '':
         del posts[-1]
 
-    original_thread_length = len(posts) 
-
+    #select the context from the complete thread
     if context < len(posts):
         posts = posts[-context:]
-    
-    #print(posts)
-    #print(len(posts))
-    #print(context)
     
     post_tkns = []
     for post in posts:
         post_tkns.append(tokenize_and_clean(post))
-    #print (post_tkns)
     
     # get the length of each sentence
     post_lengths = [len(text) for text in post_tkns]
-    #print (len(post_tkns))
-    #print (post_lengths)
 
     # create an empty matrix with padding tokens
     pad_token = vocab['<pad>']
@@ -281,12 +278,16 @@ def get_sequences(X_batch, context):
         padded_posts[i, 0:post_length] = sequence[:post_length]
 
 
-    return padded_posts, original_thread_length
+    return padded_posts
 
+def get_thread_length(X_batch):
+    posts = X_batch.iloc[0].strip().split("<EOP>")
+    return len(posts) 
 
 if args['load']:
     optimizer.load_state_dict(torch.load(filename))
 
+import math
 #Training
 for epoch in range(1,num_epochs+1):
     for batch_num in range(num_batches):
@@ -299,42 +300,52 @@ for epoch in range(1,num_epochs+1):
         targets_np = np.array(targets)
         targets_tensor = torch.LongTensor(targets)
         target = Variable(targets_tensor, requires_grad=False).cuda()
+        if args['ver']:
+            print("target size" + str(target.size()))
+            print(target)
+            print(target.size())
 
-        word_idxs, thread_length = get_sequences(X_batches[batch_num], context=CONTEXT)
+        original_thread_length = get_thread_length(X_batches[batch_num])
+        
+        #normalised context lengths
+        #contexts = [i for i in range (1,original_thread_length+1,math.ceil(original_thread_length/max_thread_length))]
+        #print(original_thread_length, max_thread_length, contexts)
+
+        word_idxs = get_sequences(X_batches[batch_num], context=1)
         if word_idxs.size == 0:
             continue
 
-        word_idxs_tensor = torch.LongTensor(word_idxs)#torch.from_numpy(word_idxs).long()
-        
+        word_idxs_tensor = torch.LongTensor(word_idxs)
         inp = Variable(word_idxs_tensor, requires_grad=False).cuda()
         
         if args['ver']:
             print(inp.size())
           
-        word_idxs2, thread_length2 = get_sequences(X_batches[batch_num], context=999)
-        if word_idxs2.size == 0:
-            continue
+        #Forward pass
+        logit = lstm(inp)
+        loss = F.cross_entropy(logit, target, class_weights_tensor, size_average=False)
 
-        word_idxs2_tensor = torch.LongTensor(word_idxs2)#torch.from_numpy(word_idxs).long()
-        
-        inp2 = Variable(word_idxs2_tensor, requires_grad=False).cuda()
+        contexts = [i for i in range (2,original_thread_length+1)]
 
-        if args['ver']:
-             print("target size" + str(target.size()))
-             print(target)
-             print(target.size())
-        # Zero the gradients before running the backward pass.
-        optimizer.zero_grad()
+        for context in (contexts):
+            word_idxs = get_sequences(X_batches[batch_num], context=context)
+            if word_idxs.size == 0:
+                continue
+
+            word_idxs_tensor = torch.LongTensor(word_idxs)
+            inp = Variable(word_idxs_tensor, requires_grad=False).cuda()
         
-        # Forward pass
-        #logit = lstm(inp)
-        logit1 = lstm(inp)
-        logit2 = lstm(inp2)
-        #logit = logit1 - logit2
-        #print (batch_num, logit)
+            if args['ver']:
+                print(inp.size())
+          
+            #Forward pass
+            logit = lstm(inp)
+            loss = loss + F.cross_entropy(logit, target, class_weights_tensor, size_average=False)
+  
+        loss = loss / (len(contexts) + 1)
 
         #loss_in_context = 1 - (CONTEXT/thread_length)
-        loss = F.cross_entropy(logit1, target, class_weights_tensor, size_average=True) + F.cross_entropy(logit2, target, class_weights_tensor, size_average=True) 
+        #loss averaged over all contexts
         #print(loss.item(), loss_in_context, thread_length)
         #if loss_in_context > 0:
         #   loss = loss * loss_in_context
@@ -342,10 +353,9 @@ for epoch in range(1,num_epochs+1):
         #loss = F.cross_entropy(logit1, target, class_weights_tensor, size_average=False) - F.cross_entropy(logit2, target, class_weights_tensor, size_average=False)
         #torch.abs_(loss)
 
-        #print(epoch, batch_num, loss)
- 
-        #loss = loss / len()
         print(epoch, batch_num, loss.item())
+        # Zero the gradients before running the backward pass.
+        optimizer.zero_grad()
 
         loss.backward()
         optimizer.step()
@@ -364,7 +374,7 @@ print('Test instances for course', args['course'])
 for batch_num in range(0, len(X_test)):
 #for idx in list(X_test.index.values):
     print(batch_num)
-    word_idxs, thread_length = get_sequences(X_batches[batch_num], context=999)
+    word_idxs = get_sequences(X_batches[batch_num], context=999)
     if word_idxs.size == 0:
         continue
 
@@ -389,9 +399,6 @@ for batch_num in range(0, len(X_test)):
     targets = []
     for idx in (y_batch.index.values):
         targets.append(y_batch[idx])
-    #targets_np = np.array(targets)
-    #targets_tensor = torch.LongTensor(targets)
-    #target = Variable(targets_tensor, requires_grad=False).cuda()
     targets = y_batch.iloc[0]
     targets_tensor = torch.LongTensor([targets])
     target = Variable(targets_tensor, requires_grad=False).cuda()
@@ -405,4 +412,6 @@ print('No of training instances', len(X_train.index))
 print('No of test instances', len(X_test.index))
 print('Ground truth', y_true)
 print('Predictions', y_preds)
+print('Ids', ids_test.values)
+print(max_thread_length)
 print('Precision, Recall, F-score', prec[1], recall[1], fscore[1])
