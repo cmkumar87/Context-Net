@@ -348,8 +348,8 @@ for epoch in range(1,num_epochs+1):
         loss.backward()
         optimizer.step()
 
-torch.save(lstm.state_dict(), "./best_model_weights")
-torch.save(optimizer.state_dict(), "./best_model_gradients")
+torch.save(lstm.state_dict(), "./best_models/hlstm_multi_best_model_weights"+course)
+torch.save(optimizer.state_dict(), "./best_models/hlstm_multi_best_model_gradients"+course)
 
 y_preds = []
 y_true = []
@@ -362,7 +362,7 @@ print('Test instances for course', args['course'])
 for batch_num in range(0, len(X_test)):
 #for idx in list(X_test.index.values):
     print(batch_num)
-    word_idxs = get_sequences(X_batches[batch_num], context=1)
+    word_idxs = get_sequences(X_batches[batch_num], context=999)
     if word_idxs.size == 0:
         continue
 

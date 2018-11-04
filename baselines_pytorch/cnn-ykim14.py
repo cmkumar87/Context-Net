@@ -33,6 +33,7 @@ VALIDATION_SPLIT = 0.2
 MINI_BATCH_SIZE = 16 
 num_epochs = 1 
 LEARNING_RATE = 1e-3
+RANDOM_SEED = 1491
 
 parser = argparse.ArgumentParser(description='BiLSTM model for predicting instructor internvention')
 parser.add_argument('-d','--dim',help="dimension of the embedding. 50 or 300", default=50, required=False, type=int)
@@ -58,10 +59,10 @@ if torch.cuda.is_available():
 
 #set seed for reproducibility of results
 from numpy.random import seed
-seed(1491)
+seed(RANDOM_SEED)
 
-torch.manual_seed(1491)
-torch.cuda.manual_seed(1491)
+torch.manual_seed(RANDOM_SEED)
+torch.cuda.manual_seed(RANDOM_SEED)
 
 def tokenize_and_clean(string):
     """
@@ -114,7 +115,7 @@ def tokenize_and_clean(string):
 
 #read inout files
 df = pd.read_csv(input_path, sep='\t', header=None, encoding="ISO-8859-1")
-train,test = train_test_split(df, test_size=0.2, random_state=1491, shuffle=True)
+train,test = train_test_split(df, test_size=0.2, random_state=RANDOM_SEED, shuffle=True)
 
 #X_train = (train.to_frame().T)
 X_train = train[2]
@@ -187,10 +188,6 @@ class Model(nn.Module):
     def forward(self, x):
         x = self.embed(x)  # (N, W, D)
         x = Variable(x)
-        #x = x.unsqueeze(1)  # (N, Ci, W, D)
-        #x = [F.relu(conv(x)).squeeze(3) for conv in self.convs1]
-        #x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in x]  # [(N, Co), ...]*len(Ks) 
-        #x = torch.cat(x, 1)
         #rewriting using conv1d
         x = x.permute(0, 2, 1)  # (N, D, W)
         x = [self.conv_and_max_pool(x, k) for k in self.convs]
@@ -205,7 +202,7 @@ cnn_args['vec'] = vec
 cnn_args['class_num'] = 2 
 cnn_args['cuda'] = torch.cuda.is_available()
 cnn_args['kernel_num'] = 100 
-cnn_args['kernel_sizes'] = [3]
+cnn_args['kernel_sizes'] = [2,3]
 cnn_args['embed_dim'] = args['dim']
 cnn_args['dropout'] = 0.4
 
