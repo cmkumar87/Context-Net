@@ -9,6 +9,7 @@ from torch.autograd import Variable
 from torchvision import transforms, utils
 import re
 import os
+import math
 #import torchtext
 
 from sklearn.model_selection import train_test_split
@@ -39,7 +40,7 @@ LEARNING_RATE = 1e-3
 parser = argparse.ArgumentParser(description='BiLSTM model for predicting instructor internvention')
 parser.add_argument('-d','--dim',help="dimension of the embedding. 50 or 300", default=50, required=False, type=int)
 parser.add_argument('-e','--epochs',help="number of epochs. > 0", default=2, required=False, type=int)
-parser.add_argument('-r','--lr',help="learning rate >0 but <100", default=1e-2, required=False, type=int)
+parser.add_argument('-r','--lr',help="learning rate >0 but <100", default=1e-3, required=False, type=int)
 parser.add_argument('-b','--bz',help="mini batch size. Usually in powers of 2; >=16", default=16, required=False, type=int)
 parser.add_argument('-v','--val',help="validation split: a number between 0 to 1", default=0.2, required=False, type=int)
 parser.add_argument('-c','--course',help="specificy course id to match that in the input file name", required=True, type=str)
@@ -51,6 +52,7 @@ args = vars(parser.parse_args())
 course = args['course']
 EMBEDDING_DIM = args['dim']
 CONTEXT = args['con']
+RANDOM_SEED = 1491
 
 input_path = '/diskA/muthu/Transact-Net/feats/in' + course + '_w2v'
 print(input_path)
@@ -62,10 +64,10 @@ if torch.cuda.is_available():
 
 #set seed for reproducibility of results
 from numpy.random import seed
-seed(1491)
+seed(RANDOM_SEED)
 
-torch.manual_seed(1491)
-torch.cuda.manual_seed(1491)
+torch.manual_seed(RANDOM_SEED)
+torch.cuda.manual_seed(RANDOM_SEED)
 
 def tokenize_and_clean(string):
     """
@@ -120,8 +122,8 @@ def tokenize_and_clean(string):
 df = pd.read_csv(input_path, sep='\t', header=None, encoding="ISO-8859-1")
 
 #create training testing and validation splits
-train,test = train_test_split(df, test_size=0.2, random_state=1491, shuffle=True)
-#train,validation = train_test_split(train, test_size=0.2, random_state=1491, shuffle=True)
+train,test = train_test_split(df, test_size=0.2, random_state=RANDOM_SEED, shuffle=True)
+#train,validation = train_test_split(train, test_size=0.2, random_state=RANDOM_SEED, shuffle=True)
 
 #X_train = (train.to_frame().T)
 X_train = train[2]
@@ -287,7 +289,6 @@ def get_thread_length(X_batch):
 if args['load']:
     optimizer.load_state_dict(torch.load(filename))
 
-import math
 #Training
 for epoch in range(1,num_epochs+1):
     for batch_num in range(num_batches):
@@ -307,11 +308,7 @@ for epoch in range(1,num_epochs+1):
 
         original_thread_length = get_thread_length(X_batches[batch_num])
         
-        #normalised context lengths
-        #contexts = [i for i in range (1,original_thread_length+1,math.ceil(original_thread_length/max_thread_length))]
-        #print(original_thread_length, max_thread_length, contexts)
-
-        word_idxs = get_sequences(X_batches[batch_num], context=1)
+        word_idxs = get_sequences(X_batches[batch_num], context=999)
         if word_idxs.size == 0:
             continue
 
@@ -325,35 +322,8 @@ for epoch in range(1,num_epochs+1):
         logit = lstm(inp)
         loss = F.cross_entropy(logit, target, class_weights_tensor, size_average=False)
 
-        contexts = [i for i in range (2,original_thread_length+1)]
-
-        for context in (contexts):
-            word_idxs = get_sequences(X_batches[batch_num], context=context)
-            if word_idxs.size == 0:
-                continue
-
-            word_idxs_tensor = torch.LongTensor(word_idxs)
-            inp = Variable(word_idxs_tensor, requires_grad=False).cuda()
-        
-            if args['ver']:
-                print(inp.size())
-          
-            #Forward pass
-            logit = lstm(inp)
-            loss = loss + F.cross_entropy(logit, target, class_weights_tensor, size_average=False)
-  
-        loss = loss / (len(contexts) + 1)
-
-        #loss_in_context = 1 - (CONTEXT/thread_length)
-        #loss averaged over all contexts
-        #print(loss.item(), loss_in_context, thread_length)
-        #if loss_in_context > 0:
-        #   loss = loss * loss_in_context
-
-        #loss = F.cross_entropy(logit1, target, class_weights_tensor, size_average=False) - F.cross_entropy(logit2, target, class_weights_tensor, size_average=False)
-        #torch.abs_(loss)
-
         print(epoch, batch_num, loss.item())
+        
         # Zero the gradients before running the backward pass.
         optimizer.zero_grad()
 
@@ -374,7 +344,7 @@ print('Test instances for course', args['course'])
 for batch_num in range(0, len(X_test)):
 #for idx in list(X_test.index.values):
     print(batch_num)
-    word_idxs = get_sequences(X_batches[batch_num], context=999)
+    word_idxs = get_sequences(X_batches[batch_num], context=1)
     if word_idxs.size == 0:
         continue
 
