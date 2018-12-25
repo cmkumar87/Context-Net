@@ -26,16 +26,13 @@ from spacy.lang.en import English
 
 import argparse
 
-MAX_SEQUENCE_LENGTH = 250 #250 words per post
-MAX_THREAD_LENGTH = 15
-MAX_NB_WORDS = 20000
 VALIDATION_SPLIT = 0.2
 MINI_BATCH_SIZE = 16 
 num_epochs = 1 
 LEARNING_RATE = 1e-3
 
 parser = argparse.ArgumentParser(description='BiLSTM model for predicting instructor internvention')
-parser.add_argument('-d','--dim',help="dimension of the embedding. 50 or 300", default=50, required=False, type=int)
+parser.add_argument('-d','--dim',help="dimension of the embedding. 50 or 300", default=300, required=False, type=int)
 parser.add_argument('-e','--epochs',help="number of epochs. > 0", default=2, required=False, type=int)
 parser.add_argument('-r','--lr',help="learning rate >0 but <100", default=1e-2, required=False, type=int)
 parser.add_argument('-b','--bz',help="mini batch size. Usually in powers of 2; >=16", default=16, required=False, type=int)
@@ -144,7 +141,7 @@ max_idx = len(vocab)
 
 #add indices and random embeddings of important OOV words. We will learn these 
 #embedding during traiing
-for word in ['<unk>', '<timeref>', '<math>', '<mathfunc>', '<eop>', '<urlref>', '<pad>']:
+for word in ['<unk>', 'timeref', 'math', 'mathfunc', 'eop', 'urlref', '<pad>']:
 	k = np.random.rand(1, EMBEDDING_DIM)
 	k = 7*k/np.linalg.norm(k)
 	vocab[word]= max_idx
@@ -156,10 +153,6 @@ for word in ['<unk>', '<timeref>', '<math>', '<mathfunc>', '<eop>', '<urlref>', 
 if args['ver']:
     print(vec.size())
 
-'''
-Yoon Kim 2010 CNN sentence classifier
-from https://github.com/Shawn1993/cnn-text-classification-pytorch/blob/master/model.py
-'''
 class Model(nn.Module):
     def __init__(self, args):
         super(Model, self).__init__()
@@ -168,8 +161,6 @@ class Model(nn.Module):
         D = args['embed_dim']
         C = args['class_num']
         Ci = 1
-        Co = args['kernel_num']
-        Ks = args['kernel_sizes']
 
         self.embed = nn.Embedding(V, D)
         self.embed.weight = nn.Parameter(args['vec'])
@@ -191,8 +182,6 @@ lstm_args['embed_num'] = max_idx
 lstm_args['vec'] = vec
 lstm_args['class_num'] = 2
 lstm_args['cuda'] = torch.cuda.is_available()
-lstm_args['kernel_num'] = 100 
-lstm_args['kernel_sizes'] = [2]
 lstm_args['embed_dim'] = args['dim']
 lstm_args['dropout'] = 0.4
 
@@ -228,6 +217,10 @@ num_batches = len(X_train.index.values) // MINI_BATCH_SIZE
 X_batches = np.array_split(X_train, num_batches)
 y_batches = np.array_split(y_train, num_batches)
 
+#initialise variable to count OOV words
+oov_words = {}
+in_vocab_words = {}
+
 def get_sequences(X_batch, y_batch):
     '''
     turns words in pieces of text into padded 
@@ -238,12 +231,13 @@ def get_sequences(X_batch, y_batch):
     for idx in (X_batch.index.values):
         X_batch_tkns.append(tokenize_and_clean(X_batch[idx]))
                 
-    # get the length of each sentence
+    # get the length of each thread in the batch 
     X_lengths = [len(text) for text in X_batch_tkns]
 
     # create an empty matrix with padding tokens
     pad_token = vocab['<pad>']
-    max_text_length = max(X_lengths)
+    #max_text_length = max(X_lengths)
+    max_text_length = 500
     batch_size = len(X_batch)
     padded_X_batch = np.ones((batch_size, max_text_length), dtype=int) * pad_token
     
@@ -251,8 +245,20 @@ def get_sequences(X_batch, y_batch):
 
     # copy over the actual sequences
     for i, x_len in enumerate(X_lengths):
-        sequence = np.array([vocab[w] if w in vocab else vocab['<unk>'] for w in X_batch_idxs[i]])
-        padded_X_batch[i, 0:x_len] = sequence[:x_len]
+        #sequence = np.array([vocab[w] if w in vocab else vocab['<unk>'] for w in X_batch_tkns[i]])
+        sequence = np.array([vocab[w] if w in vocab else vocab['<unk>'] for w in X_batch_tkns[i]])
+        if x_len > max_text_length:
+            padded_X_batch[i, 0:x_len] = sequence[:max_text_length]
+        else:
+            padded_X_batch[i, 0:x_len] = sequence[:x_len]
+
+    #count for OOVs here
+    for i in range(len(X_lengths)): 
+        for w in X_batch_tkns[i]:
+            if w not in vocab:
+                oov_words.update({w:1})
+            else:
+                in_vocab_words.update({w:1})
 
     targets = []
     for idx in (y_batch.index.values):
@@ -264,16 +270,20 @@ def get_sequences(X_batch, y_batch):
 if args['load']:
     optimizer.load_state_dict(torch.load(filename))
 
+def get_thread_length(X_batch):
+    posts = X_batch.iloc[0].strip().split("<EOP>")
+    if posts[-1] == '':
+        del posts[-1]
+    return len(posts)
+
 for epoch in range(1,num_epochs+1):
     for batch_num in range(num_batches):
         print('batch num', batch_num)
         word_idxs, targets, max_seq_length = get_sequences(X_batches[batch_num], y_batches[batch_num])
-
-        word_idxs_tensor = torch.LongTensor(word_idxs)#torch.from_numpy(word_idxs).long()
-        #print(word_idxs_tensor)
+        
+        word_idxs_tensor = torch.LongTensor(word_idxs)
 
         targets_tensor = torch.LongTensor(targets)
-        #targets_tensor = targets_tensor.cuda()
 
         inp = Variable(word_idxs_tensor, requires_grad=False).cuda()
         target = Variable(targets_tensor, requires_grad=False).cuda()
@@ -297,7 +307,8 @@ for epoch in range(1,num_epochs+1):
         loss.backward()
         optimizer.step()
 
-torch.save(optimizer.state_dict(), "./best_model")
+torch.save(lstm.state_dict(), "./best_models/lstm_best_model_weights_"+course)
+torch.save(optimizer.state_dict(), "./best_models/lstm_best_model_gradients_"+course)
 
 y_preds = []
 y_true = []
@@ -305,14 +316,11 @@ y_true = []
 print('Test instances for course', args['course'])
 for idx in list(X_test.index.values):
     x_tkns = tokenize_and_clean(X_test[idx])
-
+    
     word_idxs = torch.tensor([vocab[w] if w in vocab else vocab['<unk>'] for w in x_tkns], dtype=torch.long)
     word_idxs = word_idxs.reshape(1,-1)
     inp = (Variable(word_idxs)).cuda()
         
-    #if args['ver']:
-        #print(inp)
-
     target = (Variable(torch.LongTensor([y_test[idx]]), requires_grad=False)).cuda()
 
     if args['ver']:
@@ -336,8 +344,10 @@ for idx in list(X_test.index.values):
 #metric calculation
 prec, recall, fscore, _ = precision_recall_fscore_support(y_true, y_preds, average=None, labels=['0', '1'])
 
+print(oov_words)
 print('No of training instances', len(X_train.index))
 print('No of test instances', len(X_test.index))
 print('Ground truth', y_true)
 print('Predictions', y_preds)
 print('Precision, Recall, F-score', prec[1], recall[1], fscore[1])
+print(len(oov_words), len(in_vocab_words))

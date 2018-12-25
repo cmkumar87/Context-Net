@@ -261,7 +261,7 @@ def get_sequences(X_batch, y_batch):
 
     # copy over the actual sequences
     for i, x_len in enumerate(X_lengths):
-        sequence = np.array([vocab[w] if w in vocab else vocab['<unk>'] for w in X_batch_idxs[i]])
+        sequence = np.array([vocab[w] if w in vocab else vocab['<unk>'] for w in X_batch_tkns[i]])
         padded_X_batch[i, 0:x_len] = sequence[:x_len]
 
     targets = []
