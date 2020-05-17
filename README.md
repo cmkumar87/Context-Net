@@ -6,11 +6,11 @@ Please cite as follows if you find it useful:
 
 Chandrasekaran, M. K., & Kan, M. Y. (2019). When to reply? Context Sensitive Models to Predict Instructor Interventions in MOOC Forums. arXiv preprint arXiv:1905.10851.
 
-<bibtex>
+```
 @article{chandrasekaran2019reply,
   title={When to reply? Context Sensitive Models to Predict Instructor Interventions in MOOC Forums},
   author={Chandrasekaran, Muthu Kumar and Kan, Min-Yen},
   journal={arXiv preprint arXiv:1905.10851},
   year={2019}
 }
-</bibtex>
+```
