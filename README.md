@@ -1,5 +1,5 @@
 # Context-Net
-This is a work-in-progress repository for a deep learning based moderator agent for critical discourse in discussion forums. Currently the models are limited to student discussion data from Massive Open Online Courses.
+This repository houses model and code for a recurrent neural network (LSTM + attention) based moderator agent for critical discourse in discussion forums. Currently the models are limited to student discussion data from Massive Open Online Courses.
 
 A pre-print version of this work is available on arXiv: https://arxiv.org/pdf/1905.10851.pdf
 Please cite as follows if you find it useful:
